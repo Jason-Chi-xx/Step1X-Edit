@@ -154,7 +154,6 @@ class Qwen25VL_7b_Embedder(torch.nn.Module):
             )
 
             image_inputs, video_inputs = process_vision_info(messages)
-
             inputs = self.processor(
                 text=[text],
                 images=image_inputs,

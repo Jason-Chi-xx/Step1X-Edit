@@ -196,7 +196,9 @@ class ImageGenerator:
             t_vec = torch.full(
                 (img.shape[0],), t_curr, dtype=img.dtype, device=img.device
             )
+
             txt, vec = self.dit.connector(llm_embedding, t_vec, mask)
+
 
             pred = self.dit(
                 img=img,
@@ -339,6 +341,7 @@ class ImageGenerator:
             t = timesteps[t_idx]
             timesteps = timesteps[t_idx:]
             x = t * x + (1.0 - t) * init_image.to(x.dtype)
+
         x = torch.cat([x, x], dim=0)
         ref_images = torch.cat([ref_images, ref_images], dim=0)
         ref_images_raw = torch.cat([ref_images_raw, ref_images_raw], dim=0)
@@ -392,8 +395,6 @@ def main():
     )
 
     for image_name, prompt in image_and_prompts.items():
-        if not "kaisu" in image_name:
-            continue
         image_path = os.path.join(args.input_dir, image_name)
         output_path = os.path.join(args.output_dir, image_name)
         start_time = time.time()

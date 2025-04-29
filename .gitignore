@@ -3,3 +3,89 @@
 */.DS_store
 __pycache__
 */__pycache__/
+# 1. Python, C++, Java, JavaScript等编译中间文件
+*.pyc
+*.pyo
+*.pyd
+*.class
+*.o
+*.out
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 2. Node.js依赖
+node_modules/
+
+# 3. Java Maven / Gradle
+target/
+build/
+*.jar
+*.war
+*.ear
+
+# 4. Python虚拟环境
+venv/
+.env/
+.venv/
+pip-wheel-metadata/
+
+# 5. IDE配置文件
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# 6. OS系统垃圾文件
+.DS_Store
+Thumbs.db
+
+# 7. 日志、缓存、临时文件
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.pid
+
+# 8. 数据文件（可按需要放宽）
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.h5
+*.npz
+*.npy
+
+# 9. 大文件或权重文件（可按需要放宽）
+*.ckpt
+*.pth
+*.pt
+*.pb
+*.onnx
+
+# 10. 图片、视频、音频（除非是项目必要资源）
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.svg
+*.mp4
+*.avi
+*.mov
+*.mp3
+*.wav
+
+# 11. 特别指定：如果你想明确允许某些特定文件夹上传，可以用 ! 反向指定，比如
+# !src/
+# !scripts/
+# !include/
+# !public/
+# （根据你的项目结构自行设置）
+

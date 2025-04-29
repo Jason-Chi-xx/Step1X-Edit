@@ -198,7 +198,6 @@ class UnifiedEdit(L.LightningModule):
 
         self.lora_layers = self.init_lora(lora_path, lora_config)
         self.optimizer_config = opt_config
-        self.model_dtype = dtype
 
     def init_lora(self, lora_path: str, lora_config:dict):
         assert lora_path or lora_config
@@ -207,11 +206,11 @@ class UnifiedEdit(L.LightningModule):
             raise NotImplementedError
         else:
             self.model.add_adapter(LoraConfig(**lora_config))
-            lora_layers = []
-            for name, param in self.model.named_parameters():
-                if param.requires_grad and not "connector" in name:
-                    lora_layers.append(param)   
-        return lora_layers
+            import pdb; pdb.set_trace()
+            lora_layers = filter(
+                lambda p[1]: p[1].requires_grad and not "connector" in p[0], self.model.named_parameters()
+            )
+        return list(lora_layers)
     
     def save_weights(self, save_path: str):
         self.model.save_lora_adapter(save_path)
@@ -255,7 +254,7 @@ class UnifiedEdit(L.LightningModule):
             t = torch.sigmoid(torch.randn((imgs.shape[0],), device=self.device))
             x_1 = torch.randn_like(x_0).to(self.device)
             t_ = t.unsqueeze(1).unsqueeze(1)
-            x_t = ((1 - t_) * x_0 + t_ * x_1).to(self.model_dtype)
+            x_t = ((1 - t_) * x_0 + t_ * x_1).to(self.dtype)
 
             bs, _, h, w = x_t.shape
             x_t = rearrange(x_t, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
@@ -275,13 +274,14 @@ class UnifiedEdit(L.LightningModule):
                 prompts = [prompts]
             
             llm_embedding, mask = self.mllm(prompts, ref_imgs)
-            txt_ids = torch.zeros(bs, llm_embedding.shape[1], 3).to(device=x_t.device, dtype=x_t.dtype)
-            img = torch.cat([x_t, ref_img_latents.to(device=x_t.device, dtype=x_t.dtype)], dim=-2).to(device=x_t.device, dtype=x_t.dtype)
-            img_ids = torch.cat([img_ids, ref_img_ids], dim=-2).to(device=x_t.device, dtype=x_t.dtype)
-        t_vec = torch.full((img.shape[0],), t.item(), dtype=img.dtype, device=img.device)
-        txt, vec = self.model.connector(llm_embedding, t_vec, mask)
-        import pdb; pdb.set_trace()
-        pred = self.model(
+            txt_ids = torch.zeros(bs, llm_embedding.shape[1], 3)
+            img = torch.cat([x_t, ref_img_latents.to(device=x_t.device, dtype=x_t.dtype)], dim=-2)
+            img_ids = torch.cat([img_ids, ref_img_ids], dim=-2)
+
+        t_vec = torch.full((img.shape[0],), t, dtype=img.dtype, device=img.device)
+        txt, vec = self.step1x_edit.connector(llm_embedding, t_vec, mask)
+
+        pred = self.step1x_edit(
             img=img,
             img_ids=img_ids,
             txt=txt,
@@ -289,9 +289,7 @@ class UnifiedEdit(L.LightningModule):
             y=vec,
             timesteps=t_vec,
         )
-        import pdb; pdb.set_trace()
-        # The pred and x_0's dims are not aligned
-        # x_1: torch.Size([1, 16, 64, 64]), pred: torch.Size([1, 2048, 64])
+
         loss = torch.nn.functional.mse_loss(pred, (x_1 - x_0), reduction="mean")
         self.last_t = t.mean().item()
         return loss

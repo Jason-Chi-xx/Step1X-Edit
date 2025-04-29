@@ -1,0 +1,54 @@
+ae_path: /hy-tmp/Step1X-Edit/vae.safetensors
+dit_path: /hy-tmp/Step1X-Edit/step1x-edit-i1258.safetensors
+dtype: bfloat16
+flux_path: /hy-tmp/FLUX.1-dev
+model:
+  add_cond_attn: false
+  latent_lora: false
+  union_cond_attn: true
+qwen2vl_model_path: /hy-tmp/Qwen2.5-VL-7B-Instruct
+train:
+  accumulate_grad_batches: 4
+  ae_params:
+    ch: 128
+    ch_mult:
+    - 1
+    - 2
+    - 4
+    - 4
+    in_channels: 3
+    num_res_blocks: 2
+    out_ch: 3
+    resolution: 256
+    scale_factor: 0.3611
+    shift_factor: 0.1159
+    z_channels: 16
+  batch_size: 1
+  condition_type: metaquery
+  dataloader_workers: 5
+  dataset:
+    data_json: /root/Step1X-Edit/training_1w_splited.json
+    image_dir: /hy-tmp/training_1w_splited
+    image_size: 512
+  gradient_checkpointing: true
+  lora_config:
+    init_lora_weights: gaussian
+    lora_alpha: 16
+    r: 32
+    target_modules: (.*img_in|.*double_blocks\.[0-9]+\.img_mod\.lin|.*double_blocks\.[0-9]+\.img_attn\.qkv|.*double_blocks\.[0-9]+\.img_attn\.proj|.*double_blocks\.[0-9]+\.img_mlp\.2|.*single_bloks\.[0-9]+\.modulation\.lin|.*single_bloks\.[0-9]+\.linear1|.*single_bloks\.[0-9]+\.linear2)
+  max_steps: -1
+  optimizer:
+    params:
+      lr: 1
+      safeguard_warmup: true
+      use_bias_correction: true
+      weight_decay: 0.01
+    type: Prodigy
+  qwen2_params:
+    max_length: 640
+    model_path: /hy-tmp/Qwen2.5-VL-7B-Instruct
+  sample_interval: 200
+  save_interval: 2000
+  save_path: runs
+  wandb:
+    project: Step1X-Edit
