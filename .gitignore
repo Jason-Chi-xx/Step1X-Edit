@@ -62,6 +62,8 @@ Thumbs.db
 *.h5
 *.npz
 *.npy
+*.json
+*.jsonl
 
 # 9. 大文件或权重文件（可按需要放宽）
 *.ckpt
@@ -81,6 +83,11 @@ Thumbs.db
 *.mov
 *.mp3
 *.wav
+/assets
+/examples
+/anime_test_examples
+/output_cn
+/output_en
 
 # 11. 特别指定：如果你想明确允许某些特定文件夹上传，可以用 ! 反向指定，比如
 # !src/
