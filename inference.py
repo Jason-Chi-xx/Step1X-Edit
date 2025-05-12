@@ -115,7 +115,7 @@ class ImageGenerator:
             dtype=dtype,
         )
 
-    def prepare(self, prompt, img, ref_image, ref_image_raw):
+    def prepare(self, prompt, img, ref_image, ref_image_raw, learnable_query=None):
         bs, _, h, w = img.shape
         bs, _, ref_h, ref_w = ref_image.shape
 
@@ -147,7 +147,7 @@ class ImageGenerator:
         if isinstance(prompt, str):
             prompt = [prompt]
 
-        txt, mask = self.llm_encoder(prompt, ref_image_raw)
+        txt, mask = self.llm_encoder(prompt, ref_image_raw, learnable_query)
 
         txt_ids = torch.zeros(bs, txt.shape[1], 3)
 
@@ -197,7 +197,6 @@ class ImageGenerator:
                 (img.shape[0],), t_curr, dtype=img.dtype, device=img.device
             )
             txt, vec = self.dit.connector(llm_embedding, t_vec, mask)
-
             pred = self.dit(
                 img=img,
                 img_ids=img_ids,
@@ -298,6 +297,7 @@ class ImageGenerator:
         image2image_strength=0.0,
         show_progress=False,
         size_level=512,
+        learnable_query=None,
     ):
         assert num_samples == 1, "num_samples > 1 is not supported yet."
         ref_images_raw, img_info = self.input_process_image(ref_images, img_size=size_level)
@@ -342,7 +342,7 @@ class ImageGenerator:
         x = torch.cat([x, x], dim=0)
         ref_images = torch.cat([ref_images, ref_images], dim=0)
         ref_images_raw = torch.cat([ref_images_raw, ref_images_raw], dim=0)
-        inputs = self.prepare([prompt, negative_prompt], x, ref_image=ref_images, ref_image_raw=ref_images_raw)
+        inputs = self.prepare([prompt, negative_prompt], x, ref_image=ref_images, ref_image_raw=ref_images_raw, learnable_query=learnable_query)
 
         x = self.denoise(
             **inputs,
@@ -387,13 +387,11 @@ def main():
     image_edit = ImageGenerator(
         ae_path=os.path.join(args.model_path, 'vae.safetensors'),
         dit_path=os.path.join(args.model_path, "step1x-edit-i1258.safetensors"),
-        qwen2vl_model_path='/hy-tmp/Qwen2.5-VL-7B-Instruct',
+        qwen2vl_model_path='/root/autodl-tmp/Qwen2.5-VL-7B-Instruct',
         max_length=640,
     )
 
     for image_name, prompt in image_and_prompts.items():
-        if not "kaisu" in image_name:
-            continue
         image_path = os.path.join(args.input_dir, image_name)
         output_path = os.path.join(args.output_dir, image_name)
         start_time = time.time()

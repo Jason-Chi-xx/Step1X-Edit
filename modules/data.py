@@ -21,7 +21,12 @@ class Step1XEditDataset(Dataset):
             tgt_image_dir (str): Path to target images
             image_size (int): Input image size, default 512
         """
-        self.data = json.load(open(data_json, "r"))
+        if isinstance(data_json, list):
+            self.data = []
+            for data_json_item in data_json:
+                self.data.extend(json.load(open(data_json_item, "r")))
+        else:
+            self.data = json.load(open(data_json, "r"))
         self.image_dir = image_dir
         self.image_size = image_size
         

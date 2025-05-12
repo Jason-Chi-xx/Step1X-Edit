@@ -13,6 +13,14 @@ except ImportError:
 
 from inference import ImageGenerator
 
+class TestImageGenerator(ImageGenerator):
+    def __init__(self, dit, ae, llm_encoder, device):
+        self.device = torch.device(device)
+        self.dit = dit
+        self.ae = ae
+        self.llm_encoder = llm_encoder
+        self.dit.eval()
+
 class TrainingCallback(L.Callback):
     def __init__(self, run_name, training_config: dict = {}):
         self.run_name, self.training_config = run_name, training_config
@@ -28,6 +36,33 @@ class TrainingCallback(L.Callback):
         )
 
         self.total_steps = 0
+        self.has_checked = False
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx=0):
+        if not self.has_checked and trainer.current_epoch == 0 and trainer.global_step == 0:
+            # 执行你的检查逻辑
+            imgs= batch["tgt_imgs"]
+            ref_imgs = batch["ref_imgs"]
+            prompts = batch["prompts"]
+            # 打印 prompt
+            print("=== Sanity Check ===")
+            print("Prompt:", prompts)
+            
+            # 保存图像
+            for name, img in [("tgt", imgs), ("ref", ref_imgs)]:
+                img_clamped = img.clone().detach().cpu()
+                # img_clamped = (img_clamped + 1.0) / 2.0  # 如果是 [-1, 1] 归一化的图像
+                img_clamped = torch.clamp(img_clamped, 0, 1)
+                # 转换为PIL图像
+                img_pil = Image.fromarray((img_clamped[0].permute(1, 2, 0).numpy() * 255).astype(np.uint8))
+                if not os.path.exists(os.path.join(self.save_path, "check")):
+                    os.makedirs(os.path.join(self.save_path, "check"))
+                save_path = os.path.join(self.save_path, "check", f"{name}_img.png")
+                img_pil.save(save_path)
+                print(f"已保存 {name}_img 到 {save_path}")
+
+            print("====================")
+            self.has_checked = True
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         gradient_size = 0
@@ -100,73 +135,45 @@ class TrainingCallback(L.Callback):
         generator.manual_seed(42)
 
         test_list = []
-        image_generator = ImageGenerator(
-            dit_path=pl_module.dit_path,
-            ae_path=pl_module.ae_path,
-            qwen2vl_model_path=pl_module.qwen2vl_model_path,
+        image_generator = TestImageGenerator(
+            dit=pl_module.model,
+            ae=pl_module.ae,
+            llm_encoder=pl_module.mllm,
             device=pl_module.device,
-            max_length=pl_module.max_length,
-            dtype=pl_module.dtype,
         )
-        # if condition_type == "subject":
-        #     test_list.extend(
-        #         [
-        #             (
-        #                 Image.open("assets/test_in.jpg"),
-        #                 [0, -32],
-        #                 "Resting on the picnic table at a lakeside campsite, it's caught in the golden glow of early morning, with mist rising from the water and tall pines casting long shadows behind the scene.",
-        #             ),
-        #             (
-        #                 Image.open("assets/test_out.jpg"),
-        #                 [0, -32],
-        #                 "In a bright room. It is placed on a table.",
-        #             ),
-        #         ]
-        #     )
-        # elif condition_type == "metaquery":
-        #     with open("assets/0.png", "rb") as image_file:
-        #         image_base64 = base64.b64encode(image_file.read()).decode("utf-8")
-        #     image_pils = [Image.open("assets/0.png").convert("RGB").resize((512, 512))]
-        #     test_list.append(
-        #         (   
-        #             image_pils,
-        #             image_base64,
-        #             [0, 0],
-        #             "portrait++ style photograph of a woman. studio waist up portrait of a beautiful businesswoman with crossed arms. studio headshot on white background. spanish model.",
-        #         )
-        #     )
-        #     with open("assets/1.png", "rb") as image_file:
-        #         image_base64 = base64.b64encode(image_file.read()).decode("utf-8")
-        #     image_pils = [Image.open("assets/1.png").convert("RGB").resize((512, 512))]
-        #     test_list.append(
-        #         (   
-        #             image_pils,
-        #             image_base64,
-        #             [0, 0],
-        #             "portrait++ style photograph of a woman. one beautiful woman looking at the camera in profile. cut out studio portrait. made in barcelona real people. one beautiful woman looking at the camera in profile.",
-        #         )
-        #     )
-        # else:
-        #     raise NotImplementedError
         test_list = [
             (
-                Image.open("assets/test_in.jpg"),
-                "make her cry",
+                Image.open("assets/cartoon_boy.png").convert("RGB"),
+                "close one eye in a wink and slightly open the mouth to form a small smile.",
+            ),
+            (
+                Image.open("assets/aniya.png").convert("RGB"),
+                "Change the character's expression by closing one eye in a wink, while the mouth forms a small pout, conveying a shy or bashful emotion. Maintain the character's overall appearance and pose.",
+            ),
+            (
+                Image.open("assets/luffy_3.jpg").convert("RGB"),
+                "Shift the expression to angry, narrow the eyes slightly, lower the eyebrows, and slightly open the mouth.",
+            ),
+            (
+                Image.open("assets/saitama_2.jpg").convert("RGB"),
+                "Shift the expression to happy, narrow the eyes slightly and open the mouth gently.",
             ),
         ]
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         for i, (image_pils, prompt, *others) in enumerate(test_list):
-            res = generate(
-                pl_module,
-                image_pils=image_pils,
-                prompt=prompt,
-                height=target_size,
-                width=target_size,
-                generator=generator,
-                model_config=pl_module.model_config,
-                default_lora=True,
+            res = image_generator.generate_image(
+                prompt,
+                negative_prompt="",
+                ref_images=image_pils,
+                num_samples=1,
+                num_steps=28,
+                cfg_guidance=6.0,
+                seed=1234,
+                show_progress=True,
+                size_level=target_size,
+                # learnable_query=pl_module.learnable_query,
             )
-            res.images[0].save(
+            res[0].save(
                 os.path.join(save_path, f"{file_name}_{i}.jpg")
             )

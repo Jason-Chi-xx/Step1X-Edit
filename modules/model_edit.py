@@ -194,11 +194,19 @@ class UnifiedEdit(L.LightningModule):
         self.mllm = Qwen25VL_7b_Embedder(**qwen2_params)
 
         self.ae.requires_grad_(False)
+        self.ae.eval()
         self.mllm.requires_grad_(False)
-
+        self.mllm.eval()
         self.lora_layers = self.init_lora(lora_path, lora_config)
         self.optimizer_config = opt_config
         self.model_dtype = dtype
+        self.dit_path = dit_path
+        self.ae_path = ae_path
+        self.qwen2vl_model_path = qwen2vl_model_path
+        # self.learnable_query = nn.Parameter(torch.randn(1, 512, 3584, device=self.device, dtype=dtype))
+        # self.learnable_query.requires_grad_(True)
+        self.learnable_query = None
+
 
     def init_lora(self, lora_path: str, lora_config:dict):
         assert lora_path or lora_config
@@ -224,12 +232,16 @@ class UnifiedEdit(L.LightningModule):
         opt_config = self.optimizer_config
         self.trainable_params = list(filter(lambda p: p.requires_grad, self.model.connector.parameters()))
         self.trainable_params.extend(self.lora_layers)
+        # self.trainable_params.append(self.learnable_query)
 
         for p in self.trainable_params:
             p.requires_grad_(True)
 
         optimizer = prodigyopt.Prodigy(self.trainable_params, **opt_config['params'])
-
+        # opt_config["params"]["lr"] = 1e-4
+        # opt_config["params"]["eps"] = 1e-8
+        # opt_config["params"]["betas"] = [0.9, 0.999]
+        # optimizer = torch.optim.AdamW(self.trainable_params, **opt_config["params"])
         return optimizer
         
     def training_step(self, batch, batch_idx):
@@ -242,24 +254,27 @@ class UnifiedEdit(L.LightningModule):
         return step_loss
     
     def step(self, batch):
+        self.model.train()
         imgs= batch["tgt_imgs"]
         ref_imgs = batch["ref_imgs"]
         prompts = batch["prompts"]
         # ref_img_pil = batch["ref_img_pil"]
         # Embed the reference images
+
         with torch.no_grad():
             
-            ref_img_latents = self.ae.encode(ref_imgs.to(self.device) * 2 -1)
-            x_0 = self.ae.encode(imgs.to(self.device) * 2 -1)
+            ref_img_latents = self.ae.encode(ref_imgs.to(self.device) * 2 -1).to(self.model_dtype)
+            x_0 = self.ae.encode(imgs.to(self.device) * 2 -1).to(self.model_dtype)
+            bs, _, h, w = x_0.shape
+            x_0 = rearrange(x_0, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
+            ref_img_latents = rearrange(ref_img_latents, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
 
             t = torch.sigmoid(torch.randn((imgs.shape[0],), device=self.device))
-            x_1 = torch.randn_like(x_0).to(self.device)
+            x_1 = torch.randn_like(x_0).to(self.device, dtype=self.model_dtype)
             t_ = t.unsqueeze(1).unsqueeze(1)
             x_t = ((1 - t_) * x_0 + t_ * x_1).to(self.model_dtype)
 
-            bs, _, h, w = x_t.shape
-            x_t = rearrange(x_t, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
-            ref_img_latents = rearrange(ref_img_latents, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
+            # x_t = rearrange(x_t, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
 
             img_ids = torch.zeros(h // 2, w // 2, 3)
             img_ids[..., 1] = img_ids[..., 1] + torch.arange(h // 2)[:, None]
@@ -274,14 +289,13 @@ class UnifiedEdit(L.LightningModule):
             if isinstance(prompts, str):
                 prompts = [prompts]
             
-            llm_embedding, mask = self.mllm(prompts, ref_imgs)
-            txt_ids = torch.zeros(bs, llm_embedding.shape[1], 3).to(device=x_t.device, dtype=x_t.dtype)
-            img = torch.cat([x_t, ref_img_latents.to(device=x_t.device, dtype=x_t.dtype)], dim=-2).to(device=x_t.device, dtype=x_t.dtype)
-            img_ids = torch.cat([img_ids, ref_img_ids], dim=-2).to(device=x_t.device, dtype=x_t.dtype)
+        llm_embedding, mask = self.mllm(prompts, ref_imgs, self.learnable_query)
+        txt_ids = torch.zeros(bs, llm_embedding.shape[1], 3).to(device=x_t.device, dtype=x_t.dtype)
+        img = torch.cat([x_t, ref_img_latents.to(device=x_t.device, dtype=x_t.dtype)], dim=-2).to(device=x_t.device, dtype=x_t.dtype)
+        img_ids = torch.cat([img_ids, ref_img_ids], dim=-2).to(device=x_t.device, dtype=x_t.dtype)
         t_vec = torch.full((img.shape[0],), t.item(), dtype=img.dtype, device=img.device)
         txt, vec = self.model.connector(llm_embedding, t_vec, mask)
-        import pdb; pdb.set_trace()
-        pred = self.model(
+        preds = self.model(
             img=img,
             img_ids=img_ids,
             txt=txt,
@@ -289,7 +303,7 @@ class UnifiedEdit(L.LightningModule):
             y=vec,
             timesteps=t_vec,
         )
-        import pdb; pdb.set_trace()
+        pred, _ = preds.chunk(2, dim=1)
         # The pred and x_0's dims are not aligned
         # x_1: torch.Size([1, 16, 64, 64]), pred: torch.Size([1, 2048, 64])
         loss = torch.nn.functional.mse_loss(pred, (x_1 - x_0), reduction="mean")

@@ -83,7 +83,7 @@ class Qwen25VL_7b_Embedder(torch.nn.Module):
 
         self.prefix = Qwen25VL_7b_PREFIX
 
-    def forward(self, caption, ref_images, learnable_query=None):
+    def forward(self, caption, ref_images):
         text_list = caption
         embs = torch.zeros(
             len(text_list),
@@ -92,13 +92,13 @@ class Qwen25VL_7b_Embedder(torch.nn.Module):
             dtype=torch.bfloat16,
             device=torch.cuda.current_device(),
         )
-        # hidden_states = torch.zeros(
-        #     len(text_list),
-        #     512,
-        #     self.model.config.hidden_size,
-        #     dtype=torch.bfloat16,
-        #     device=torch.cuda.current_device(),
-        # )
+        hidden_states = torch.zeros(
+            len(text_list),
+            self.max_length,
+            self.model.config.hidden_size,
+            dtype=torch.bfloat16,
+            device=torch.cuda.current_device(),
+        )
         masks = torch.zeros(
             len(text_list),
             self.max_length,
@@ -140,8 +140,8 @@ class Qwen25VL_7b_Embedder(torch.nn.Module):
         for idx, (txt, imgs) in enumerate(zip(text_list, ref_images)):
 
             messages = [{"role": "user", "content": []}]
-            # directly remove the prefix
-            # messages[0]["content"].append({"type": "text", "text": f"{self.prefix}"})
+
+            messages[0]["content"].append({"type": "text", "text": f"{self.prefix}"})
 
             messages[0]["content"].append({"type": "image", "image": to_pil(imgs)})
 
@@ -199,42 +199,15 @@ class Qwen25VL_7b_Embedder(torch.nn.Module):
                 image_grid_thw=inputs.image_grid_thw.to("cuda"),
                 output_hidden_states=True,
             )
-            # inputs_embeds = self.model.get_input_embeddings()(inputs.input_ids)
-            # pixel_values = inputs['pixel_values'].to(self.device, dtype=self.dtype)
-            # if pixel_values is not None:
-            #     image_grid_thw = inputs.image_grid_thw.to(self.device)  # 只转换设备，不转换数据类型
-            #     image_embeds = self.model.visual(pixel_values, grid_thw=image_grid_thw)
-            #     n_image_tokens = (inputs.input_ids == self.model.config.image_token_id).sum().item()
-            #     n_image_features = image_embeds.shape[0]
-            #     if n_image_tokens != n_image_features:
-            #         raise ValueError(
-            #             f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
-            #         )
 
-            #     mask = inputs.input_ids == self.model.config.image_token_id
-            #     mask_unsqueezed = mask.unsqueeze(-1)
-            #     mask_expanded = mask_unsqueezed.expand_as(inputs_embeds)
-            #     image_mask = mask_expanded.to(inputs_embeds.device)
-
-            #     image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-            #     inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
-            # batch_size = inputs_embeds.shape[0]
-            # inputs_embeds = torch.cat([inputs_embeds, learnable_query.expand(batch_size, -1, -1)], dim=1)
-            # outputs = self.model.model.forward(inputs_embeds=inputs_embeds)
-            # emb = outputs["last_hidden_state"]
             emb = outputs["hidden_states"][-1]
-            # embs[idx, : min(self.max_length, emb.shape[1] - 217)] = emb[0, 217:][
-            #     : self.max_length
-            # ]
-            # embs[idx, :512] = emb[0, -512:]
-            embs[idx, :min(self.max_length, emb.shape[1])] = emb[0, :min(self.max_length, emb.shape[1])]
-            # masks[idx, : min(self.max_length, emb.shape[1] - 217)] = torch.ones(
-            #     (min(self.max_length, emb.shape[1] - 217)),
-            #     dtype=torch.long,
-            #     device=torch.cuda.current_device(),
-            # )
-            masks[idx, : min(self.max_length, emb.shape[1])] = torch.ones(
-                min(self.max_length, emb.shape[1]),
+
+            embs[idx, : min(self.max_length, emb.shape[1] - 217)] = emb[0, 217:][
+                : self.max_length
+            ]
+
+            masks[idx, : min(self.max_length, emb.shape[1] - 217)] = torch.ones(
+                (min(self.max_length, emb.shape[1] - 217)),
                 dtype=torch.long,
                 device=torch.cuda.current_device(),
             )
